@@ -2,7 +2,7 @@
  * Base Camp - Daily outdoor puzzle games for Pebble
  * Targets: emery (Time 2), gabbro (Round 2)
  *
- * Games: Tents & Trees, Twilight (Sun & Moon binary puzzle)
+ * Games: Tents & Trees, Twilight (Sun & Moon), Smoke Signal (Thermometer)
  * Features: Easy/Hard, streak tracking, tutorials, yesterday replay
  */
 
@@ -13,18 +13,20 @@
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-#define NUM_GAMES 2
+#define NUM_GAMES 3
 #define MAX_GRID  8
+#define MAX_THERMOS 16  // max thermometer segments per puzzle
 
 // States
 enum {
   ST_MAIN_MENU, ST_DIFF_MENU, ST_TUTORIAL, ST_STATS,
   ST_TN_PLAY, ST_TN_CHECK, ST_TN_WIN,
   ST_BN_PLAY, ST_BN_CHECK, ST_BN_WIN,
+  ST_SM_PLAY, ST_SM_CHECK, ST_SM_WIN,
 };
 
 // Games
-enum { GAME_TENTS, GAME_BINAIRO };
+enum { GAME_TENTS, GAME_BINAIRO, GAME_SMOKE };
 
 // Tents cell values
 #define TN_EMPTY 0
@@ -37,12 +39,18 @@ enum { GAME_TENTS, GAME_BINAIRO };
 #define BN_SUN   1
 #define BN_MOON  2
 
+// Smoke Signal cell values
+#define SM_EMPTY  0
+#define SM_FILLED 1  // smoke/fire filled
+
 // Font Awesome UTF-8 icon strings
 #define FA_TREE      "\xEF\x86\xBB"  // U+F1BB tree
 #define FA_CARET_UP  "\xEF\x83\x98"  // U+F0D8 tent marker
 #define FA_CIRCLE    "\xEF\x84\x91"  // U+F111 grass dot
 #define FA_SUN       "\xEF\x86\x85"  // U+F185 sun-o
 #define FA_MOON      "\xEF\x86\x86"  // U+F186 moon-o
+#define FA_FIRE      "\xEF\x81\xAD"  // U+F06D fire
+#define FA_CLOUD     "\xEF\x83\x82"  // U+F0C2 cloud (smoke)
 
 // ============================================================================
 // PERSISTENCE KEYS
@@ -55,6 +63,7 @@ enum { GAME_TENTS, GAME_BINAIRO };
 
 #define P_TN_BASE       10
 #define P_BN_BASE       20
+#define P_SM_BASE       70
 #define PG_DONE_DAY_E    0
 #define PG_DONE_DAY_H    1
 #define PG_WINS_EASY     2
@@ -69,9 +78,14 @@ enum { GAME_TENTS, GAME_BINAIRO };
 #define P_BN_SAVE_DAY   40
 #define P_BN_SAVE_DIFF  41
 #define P_BN_SAVE_DATA  42  // persist_write_data blob
+#define P_SM_SAVE_DAY   50
+#define P_SM_SAVE_DIFF  51
+#define P_SM_SAVE_DATA  52  // persist_write_data blob
 
 static int game_base(int g) {
-  return (g == GAME_BINAIRO) ? P_BN_BASE : P_TN_BASE;
+  if(g == GAME_BINAIRO) return P_BN_BASE;
+  if(g == GAME_SMOKE) return P_SM_BASE;
+  return P_TN_BASE;
 }
 
 // ============================================================================
@@ -205,11 +219,16 @@ static void grid_cursor_to_first_unlocked(void) {
 // SAVE / RESTORE PROGRESS
 // ============================================================================
 // Board cells packed as uint8_t[64] (row-major, val 0-3)
+static void _save_keys(int game_id, int *day_key, int *diff_key, int *data_key) {
+  if(game_id == GAME_SMOKE)   { *day_key=P_SM_SAVE_DAY; *diff_key=P_SM_SAVE_DIFF; *data_key=P_SM_SAVE_DATA; }
+  else if(game_id == GAME_BINAIRO) { *day_key=P_BN_SAVE_DAY; *diff_key=P_BN_SAVE_DIFF; *data_key=P_BN_SAVE_DATA; }
+  else { *day_key=P_TN_SAVE_DAY; *diff_key=P_TN_SAVE_DIFF; *data_key=P_TN_SAVE_DATA; }
+}
+
 static void save_game_progress(int game_id, int board[MAX_GRID][MAX_GRID], int size) {
-  if(s_yesterday) return;  // don't save yesterday puzzles
-  int day_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DAY : P_BN_SAVE_DAY;
-  int diff_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DIFF : P_BN_SAVE_DIFF;
-  int data_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DATA : P_BN_SAVE_DATA;
+  if(s_yesterday) return;
+  int day_key, diff_key, data_key;
+  _save_keys(game_id, &day_key, &diff_key, &data_key);
   persist_write_int(day_key, day_number());
   persist_write_int(diff_key, s_difficulty);
   uint8_t buf[64];
@@ -221,9 +240,8 @@ static void save_game_progress(int game_id, int board[MAX_GRID][MAX_GRID], int s
 
 static bool restore_game_progress(int game_id, int board[MAX_GRID][MAX_GRID], int size) {
   if(s_yesterday) return false;
-  int day_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DAY : P_BN_SAVE_DAY;
-  int diff_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DIFF : P_BN_SAVE_DIFF;
-  int data_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DATA : P_BN_SAVE_DATA;
+  int day_key, diff_key, data_key;
+  _save_keys(game_id, &day_key, &diff_key, &data_key);
   if(!persist_exists(day_key) || persist_read_int(day_key) != day_number()) return false;
   if(!persist_exists(diff_key) || persist_read_int(diff_key) != s_difficulty) return false;
   uint8_t buf[64];
@@ -728,6 +746,196 @@ static void bn_toggle_and_check(void) {
 }
 
 // ============================================================================
+// SMOKE SIGNAL (Thermometer puzzle)
+// ============================================================================
+static void sm_update_warnings(void);  // forward decl
+static int sm_size;
+static int sm_board[MAX_GRID][MAX_GRID];   // 0=empty, 1=filled
+// Thermometer data: each thermo is a list of (r,c) from base to tip
+static int sm_thermo_count;
+static int sm_thermos[MAX_THERMOS][MAX_GRID]; // packed r*8+c per cell
+static int sm_thermo_len[MAX_THERMOS];         // length of each thermo
+static int sm_thermo_id[MAX_GRID][MAX_GRID];   // which thermo owns cell (-1 = none)
+static int sm_thermo_pos[MAX_GRID][MAX_GRID];  // position in thermo (0=base)
+static int sm_row_clues[MAX_GRID];
+static int sm_col_clues[MAX_GRID];
+static bool sm_error[MAX_GRID][MAX_GRID];
+static bool sm_warn[MAX_GRID][MAX_GRID];
+static char sm_error_msg[24];
+
+static void sm_generate(int size) {
+  // Place thermometers randomly on the grid
+  memset(sm_thermo_id, -1, sizeof(sm_thermo_id));
+  memset(sm_thermo_pos, 0, sizeof(sm_thermo_pos));
+  sm_thermo_count = 0;
+
+  int target = (size == 6) ? 6 : 10;  // target number of thermometers
+  int dirs[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};  // up,down,left,right
+
+  for(int attempt = 0; attempt < 200 && sm_thermo_count < target; attempt++) {
+    int r = rand() % size, c = rand() % size;
+    if(sm_thermo_id[r][c] >= 0) continue;
+    // Pick random direction
+    int di = rand() % 4;
+    int dr = dirs[di][0], dc = dirs[di][1];
+    // Determine max length in this direction
+    int max_len = 1;
+    for(int i = 1; i < size; i++) {
+      int nr = r + dr * i, nc = c + dc * i;
+      if(nr < 0 || nr >= size || nc < 0 || nc >= size) break;
+      if(sm_thermo_id[nr][nc] >= 0) break;
+      max_len++;
+    }
+    if(max_len < 2) continue;
+    int len = 2 + rand() % (max_len - 1);  // 2 to max_len
+    if(len > max_len) len = max_len;
+    // Place thermometer
+    int ti = sm_thermo_count;
+    sm_thermo_len[ti] = len;
+    for(int i = 0; i < len; i++) {
+      int cr = r + dr * i, cc = c + dc * i;
+      sm_thermos[ti][i] = cr * MAX_GRID + cc;
+      sm_thermo_id[cr][cc] = ti;
+      sm_thermo_pos[cr][cc] = i;
+    }
+    sm_thermo_count++;
+  }
+
+  // Generate solution: randomly fill each thermo from base up to some level
+  int sol[MAX_GRID][MAX_GRID];
+  memset(sol, 0, sizeof(sol));
+  for(int ti = 0; ti < sm_thermo_count; ti++) {
+    int fill = rand() % (sm_thermo_len[ti] + 1);  // 0 to full length
+    for(int i = 0; i < fill; i++) {
+      int packed = sm_thermos[ti][i];
+      sol[packed / MAX_GRID][packed % MAX_GRID] = SM_FILLED;
+    }
+  }
+
+  // Compute clues
+  for(int r = 0; r < size; r++) {
+    sm_row_clues[r] = 0;
+    for(int c = 0; c < size; c++) if(sol[r][c] == SM_FILLED) sm_row_clues[r]++;
+  }
+  for(int c = 0; c < size; c++) {
+    sm_col_clues[c] = 0;
+    for(int r = 0; r < size; r++) if(sol[r][c] == SM_FILLED) sm_col_clues[c]++;
+  }
+
+  // Player board starts empty (thermos are visible but unfilled)
+  memset(sm_board, 0, sizeof(sm_board));
+}
+
+static void sm_init(void) {
+  sm_size = (s_difficulty == 0) ? 6 : 8;
+  seed_game(GAME_SMOKE, s_difficulty, s_yesterday);
+  sm_generate(sm_size);
+  g_rows = g_cols = sm_size;
+  // No cells are locked in smoke signal - all playable (except non-thermo cells)
+  memset(g_locked, 0, sizeof(g_locked));
+  for(int r = 0; r < sm_size; r++)
+    for(int c = 0; c < sm_size; c++)
+      g_locked[r][c] = (sm_thermo_id[r][c] < 0);  // lock non-thermo cells
+  grid_cursor_to_first_unlocked();
+  restore_game_progress(GAME_SMOKE, sm_board, sm_size);
+  memset(sm_error, 0, sizeof(sm_error));
+  memset(sm_warn, 0, sizeof(sm_warn));
+  sm_error_msg[0] = '\0';
+  sm_update_warnings();
+  s_state = ST_SM_PLAY;
+}
+
+static void sm_update_warnings(void) {
+  memset(sm_warn, 0, sizeof(sm_warn));
+  int size = sm_size;
+  // Warn if filled cell has a gap below it in same thermo
+  for(int ti = 0; ti < sm_thermo_count; ti++) {
+    bool gap = false;
+    for(int i = 0; i < sm_thermo_len[ti]; i++) {
+      int packed = sm_thermos[ti][i];
+      int r = packed / MAX_GRID, c = packed % MAX_GRID;
+      if(sm_board[r][c] == SM_FILLED && gap) sm_warn[r][c] = true;
+      if(sm_board[r][c] == SM_EMPTY) gap = true;
+    }
+  }
+  // Warn if row/col count exceeded
+  for(int r = 0; r < size; r++) {
+    int cnt = 0;
+    for(int c = 0; c < size; c++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    if(cnt > sm_row_clues[r])
+      for(int c = 0; c < size; c++) if(sm_board[r][c] == SM_FILLED) sm_warn[r][c] = true;
+  }
+  for(int c = 0; c < size; c++) {
+    int cnt = 0;
+    for(int r = 0; r < size; r++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    if(cnt > sm_col_clues[c])
+      for(int r = 0; r < size; r++) if(sm_board[r][c] == SM_FILLED) sm_warn[r][c] = true;
+  }
+}
+
+static bool sm_check_solution(void) {
+  int size = sm_size;
+  memset(sm_error, 0, sizeof(sm_error));
+  bool has_err = false;
+
+  // Check row counts
+  for(int r = 0; r < size; r++) {
+    int cnt = 0;
+    for(int c = 0; c < size; c++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    if(cnt != sm_row_clues[r]) {
+      for(int c = 0; c < size; c++) if(sm_thermo_id[r][c] >= 0) sm_error[r][c] = true;
+      has_err = true;
+    }
+  }
+  for(int c = 0; c < size; c++) {
+    int cnt = 0;
+    for(int r = 0; r < size; r++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    if(cnt != sm_col_clues[c]) {
+      for(int r = 0; r < size; r++) if(sm_thermo_id[r][c] >= 0) sm_error[r][c] = true;
+      has_err = true;
+    }
+  }
+  if(has_err) { strncpy(sm_error_msg, "Count mismatch!", sizeof(sm_error_msg)); return false; }
+
+  // Check continuity: filled cells must be contiguous from base
+  for(int ti = 0; ti < sm_thermo_count; ti++) {
+    bool gap = false;
+    for(int i = 0; i < sm_thermo_len[ti]; i++) {
+      int packed = sm_thermos[ti][i];
+      int r = packed / MAX_GRID, c = packed % MAX_GRID;
+      if(sm_board[r][c] == SM_FILLED && gap) {
+        sm_error[r][c] = true; has_err = true;
+      }
+      if(sm_board[r][c] == SM_EMPTY) gap = true;
+    }
+  }
+  if(has_err) { strncpy(sm_error_msg, "Smoke has gaps!", sizeof(sm_error_msg)); return false; }
+  return true;
+}
+
+static void sm_toggle_and_check(void) {
+  if(g_locked[g_cursor_r][g_cursor_c]) return;
+  int *cell = &sm_board[g_cursor_r][g_cursor_c];
+  *cell = (*cell == SM_EMPTY) ? SM_FILLED : SM_EMPTY;
+  sm_update_warnings();
+
+  // Auto-check when total filled matches total expected
+  int total_exp = 0, total_placed = 0;
+  for(int r = 0; r < sm_size; r++) total_exp += sm_row_clues[r];
+  for(int r = 0; r < sm_size; r++)
+    for(int c = 0; c < sm_size; c++)
+      if(sm_board[r][c] == SM_FILLED) total_placed++;
+  if(total_placed == total_exp) {
+    if(sm_check_solution()) {
+      if(!s_yesterday) mark_game_done(GAME_SMOKE, s_difficulty, 1);
+      s_state = ST_SM_WIN; vibes_short_pulse();
+    } else {
+      s_state = ST_SM_CHECK;
+    }
+  }
+}
+
+// ============================================================================
 // DRAWING HELPERS
 // ============================================================================
 static void draw_checkmark(GContext *ctx, int x, int y) {
@@ -793,15 +1001,15 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
   // Menu items: Tents, Binairo, ---, Yesterday, Stats
-  const char *items[] = {"Tents & Trees", "Twilight", "Yesterday", "Stats"};
+  const char *items[] = {"Tents & Trees", "Twilight", "Smoke Signal", "Yesterday", "Stats"};
   int my = ty + 54;
   int row_h = 26;
   int mx = PBL_IF_ROUND_ELSE(pad + 24, pad + 16);
 
-  for(int i = 0; i < 4; i++) {
+  for(int i = 0; i < 5; i++) {
     bool sel = (s_menu_cursor == i);
     // Separator before Yesterday
-    if(i == 2) {
+    if(i == 3) {
       #ifdef PBL_COLOR
       graphics_context_set_stroke_color(ctx, GColorFromHEX(0x555555));
       #else
@@ -858,8 +1066,10 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
     graphics_context_set_fill_color(ctx, GColorBlack);
   else if(s_game == GAME_TENTS)
     graphics_context_set_fill_color(ctx, GColorFromHEX(0x005500));
-  else
+  else if(s_game == GAME_BINAIRO)
     graphics_context_set_fill_color(ctx, GColorFromHEX(0x000055));
+  else
+    graphics_context_set_fill_color(ctx, GColorFromHEX(0x550000));
   #else
   graphics_context_set_fill_color(ctx, GColorBlack);
   #endif
@@ -884,11 +1094,12 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
     graphics_draw_text(ctx, "YESTERDAY", f_lg,
       GRect(0, ty, w, 34),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-    opts[0] = "Tents & Trees"; opts[1] = "Twilight";
-    num_opts = 2;
+    opts[0] = "Tents & Trees"; opts[1] = "Twilight"; opts[2] = "Smoke Signal";
+    num_opts = 3;
   } else {
     graphics_context_set_text_color(ctx, GColorWhite);
-    const char *title = (s_game == GAME_TENTS) ? "TENTS" : "TWILIGHT";
+    const char *title = (s_game == GAME_TENTS) ? "TENTS" :
+                         (s_game == GAME_BINAIRO) ? "TWILIGHT" : "SMOKE SIGNAL";
     graphics_draw_text(ctx, title, f_lg,
       GRect(0, ty, w, 34),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -902,8 +1113,10 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
     bool sel = (s_diff_cursor == i);
     if(sel) {
       #ifdef PBL_COLOR
-      GColor sel_bg = (s_game == GAME_TENTS || s_yesterday) ?
-        GColorFromHEX(0x00AA00) : GColorFromHEX(0x0000AA);
+      GColor sel_bg = s_yesterday ? GColorFromHEX(0x555555) :
+        (s_game == GAME_TENTS) ? GColorFromHEX(0x00AA00) :
+        (s_game == GAME_BINAIRO) ? GColorFromHEX(0x0000AA) :
+        GColorFromHEX(0xAA0000);
       graphics_context_set_fill_color(ctx, sel_bg);
       #else
       graphics_context_set_fill_color(ctx, GColorDarkGray);
@@ -931,7 +1144,8 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
 static void draw_tutorial(GContext *ctx, int w, int h) {
   #ifdef PBL_COLOR
   graphics_context_set_fill_color(ctx, (s_game == GAME_TENTS) ?
-    GColorFromHEX(0x005500) : GColorFromHEX(0x000055));
+    GColorFromHEX(0x005500) : (s_game == GAME_BINAIRO) ?
+    GColorFromHEX(0x000055) : GColorFromHEX(0x550000));
   #else
   graphics_context_set_fill_color(ctx, GColorBlack);
   #endif
@@ -968,7 +1182,7 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       lines[4] = "Hold DOWN: save & exit";
       nlines = 5;
     }
-  } else {
+  } else if(s_game == GAME_BINAIRO) {
     title = "TWILIGHT";
     if(s_tut_page == 0) {
       lines[0] = "Fill grid with suns/moons";
@@ -978,6 +1192,20 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       nlines = 4;
     } else {
       lines[0] = "TAP: toggle cell";
+      lines[1] = "Arrows: move cursor";
+      lines[2] = "Hold DOWN: save & exit";
+      nlines = 3;
+    }
+  } else {
+    title = "SMOKE SIGNAL";
+    if(s_tut_page == 0) {
+      lines[0] = "Fill campfires with smoke";
+      lines[1] = "Smoke rises from the fire";
+      lines[2] = "No gaps allowed!";
+      lines[3] = "Match row/col counts";
+      nlines = 4;
+    } else {
+      lines[0] = "TAP: fill/empty cell";
       lines[1] = "Arrows: move cursor";
       lines[2] = "Hold DOWN: save & exit";
       nlines = 3;
@@ -1087,7 +1315,7 @@ static void draw_stats(GContext *ctx, int w, int h) {
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   ly += 26;
 
-  const char *gn[] = {"Tnt", "Twi"};
+  const char *gn[] = {"Tnt", "Twi", "Smk"};
   for(int g = 0; g < NUM_GAMES; g++) {
     int base = game_base(g);
     int we = persist_exists(base + PG_WINS_EASY) ? persist_read_int(base + PG_WINS_EASY) : 0;
@@ -1472,6 +1700,220 @@ static void draw_binairo(GContext *ctx, int w, int h) {
 }
 
 // ============================================================================
+// DRAW: SMOKE SIGNAL (dark red background, fire & smoke)
+// ============================================================================
+#ifdef PBL_COLOR
+#define SM_BG         GColorFromHEX(0x550000)  // dark red
+#define SM_GRID_BG    GColorFromHEX(0x550000)  // empty thermo cell
+#define SM_FIRE_CLR   GColorFromHEX(0xFFAA00)  // orange fire (base)
+#define SM_SMOKE_CLR  GColorFromHEX(0xAAAAAA)  // light gray smoke
+#define SM_FILLED_BG  GColorFromHEX(0xAA5500)  // warm filled bg
+#define SM_EMPTY_BG   GColorFromHEX(0x550000)  // unfilled thermo
+#define SM_LOCKED_BG  GColorBlack              // non-thermo cell
+#define SM_CLUE_OK    GColorFromHEX(0x55FF55)  // clue met
+#endif
+
+static void draw_sm_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
+  int val = sm_board[r][c];
+  int tid = sm_thermo_id[r][c];
+  bool is_cursor = (r == g_cursor_r && c == g_cursor_c);
+  bool in_err = sm_error[r][c];
+  bool in_warn = sm_warn[r][c];
+
+  #ifdef PBL_COLOR
+  if(tid < 0) {
+    graphics_context_set_fill_color(ctx, SM_LOCKED_BG);
+  } else if(in_err) {
+    graphics_context_set_fill_color(ctx, GColorFromHEX(0xFF0000));
+  } else if(in_warn) {
+    graphics_context_set_fill_color(ctx, GColorFromHEX(0x555500));
+  } else if(val == SM_FILLED) {
+    graphics_context_set_fill_color(ctx, SM_FILLED_BG);
+  } else {
+    graphics_context_set_fill_color(ctx, SM_EMPTY_BG);
+  }
+  #else
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  #endif
+  graphics_fill_rect(ctx, GRect(x, y, sz, sz), 3, GCornersAll);
+
+  if(is_cursor && tid >= 0) {
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_width(ctx, 2);
+    graphics_draw_round_rect(ctx, GRect(x, y, sz, sz), 3);
+    graphics_context_set_stroke_width(ctx, 1);
+  } else if(tid >= 0 && val == SM_EMPTY) {
+    #ifdef PBL_COLOR
+    graphics_context_set_stroke_color(ctx, GColorFromHEX(0xAA5500));
+    #else
+    graphics_context_set_stroke_color(ctx, GColorDarkGray);
+    #endif
+    graphics_draw_round_rect(ctx, GRect(x, y, sz, sz), 3);
+  }
+
+  // Draw icon: fire for base cell, cloud for other filled cells
+  if(tid >= 0 && val == SM_FILLED) {
+    GFont icon_font = s_icon_font_14;
+    bool is_base = (sm_thermo_pos[r][c] == 0);
+    if(is_base) {
+      #ifdef PBL_COLOR
+      graphics_context_set_text_color(ctx, SM_FIRE_CLR);
+      #else
+      graphics_context_set_text_color(ctx, GColorWhite);
+      #endif
+      if(icon_font)
+        graphics_draw_text(ctx, FA_FIRE, icon_font, GRect(x, y, sz, sz),
+          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+      else
+        graphics_draw_text(ctx, "F", fonts_get_system_font(FONT_KEY_GOTHIC_14), GRect(x, y, sz, sz),
+          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    } else {
+      #ifdef PBL_COLOR
+      graphics_context_set_text_color(ctx, SM_SMOKE_CLR);
+      #else
+      graphics_context_set_text_color(ctx, GColorWhite);
+      #endif
+      if(icon_font)
+        graphics_draw_text(ctx, FA_CLOUD, icon_font, GRect(x, y, sz, sz),
+          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+      else
+        graphics_draw_text(ctx, "S", fonts_get_system_font(FONT_KEY_GOTHIC_14), GRect(x, y, sz, sz),
+          GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    }
+  } else if(tid >= 0 && val == SM_EMPTY && sm_thermo_pos[r][c] == 0) {
+    // Show dim fire icon on empty base cell so you know where thermos start
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, GColorFromHEX(0xAA5500));
+    #else
+    graphics_context_set_text_color(ctx, GColorDarkGray);
+    #endif
+    if(s_icon_font_14)
+      graphics_draw_text(ctx, FA_FIRE, s_icon_font_14, GRect(x, y, sz, sz),
+        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
+}
+
+static void draw_sm_clues(GContext *ctx, int ox, int oy, int cell_sz, int gap, int w) {
+  int size = sm_size;
+  int cs = 14;
+  GFont f_clue = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+  char buf[4];
+  for(int c = 0; c < size; c++) {
+    int cx = ox + c * (cell_sz + gap);
+    int cnt = 0;
+    for(int r = 0; r < size; r++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    #ifdef PBL_COLOR
+    if(cnt == sm_col_clues[c]) graphics_context_set_text_color(ctx, SM_CLUE_OK);
+    else if(cnt > sm_col_clues[c]) graphics_context_set_text_color(ctx, GColorRed);
+    else graphics_context_set_text_color(ctx, GColorLightGray);
+    #else
+    graphics_context_set_text_color(ctx, GColorWhite);
+    #endif
+    snprintf(buf, sizeof(buf), "%d", sm_col_clues[c]);
+    graphics_draw_text(ctx, buf, f_clue, GRect(cx, oy - cs, cell_sz, cs),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
+  for(int r = 0; r < size; r++) {
+    int ry = oy + r * (cell_sz + gap);
+    int cnt = 0;
+    for(int c = 0; c < size; c++) if(sm_board[r][c] == SM_FILLED) cnt++;
+    #ifdef PBL_COLOR
+    if(cnt == sm_row_clues[r]) graphics_context_set_text_color(ctx, SM_CLUE_OK);
+    else if(cnt > sm_row_clues[r]) graphics_context_set_text_color(ctx, GColorRed);
+    else graphics_context_set_text_color(ctx, GColorLightGray);
+    #else
+    graphics_context_set_text_color(ctx, GColorWhite);
+    #endif
+    snprintf(buf, sizeof(buf), "%d", sm_row_clues[r]);
+    graphics_draw_text(ctx, buf, f_clue, GRect(ox - cs, ry, cs, cell_sz),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
+}
+
+static void draw_smoke(GContext *ctx, int w, int h) {
+  #ifdef PBL_COLOR
+  graphics_context_set_fill_color(ctx, SM_BG);
+  #else
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  #endif
+  graphics_fill_rect(ctx, GRect(0, 0, w, h), 0, GCornerNone);
+
+  GFont f_lg = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+  GFont f_md = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  GFont f_sm = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+  int pad = PBL_IF_ROUND_ELSE(18, 4);
+
+  if(s_state == ST_SM_PLAY || s_state == ST_SM_CHECK) {
+    int ty = PBL_IF_ROUND_ELSE(pad + 2, 0);
+    graphics_context_set_text_color(ctx, GColorWhite);
+    const char *dl = (sm_size == 6) ? "SMOKE EASY" : "SMOKE HARD";
+    graphics_draw_text(ctx, dl, f_sm, GRect(0, ty, w, 16),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+    int cs = 14, gap = 2, cell_sz;
+    if(PBL_IF_ROUND_ELSE(true, false)) {
+      int safe = (int)(w * 60) / 100 - cs;
+      cell_sz = (safe - (sm_size - 1) * gap) / sm_size;
+    } else {
+      cell_sz = (w - 12 - cs - (sm_size - 1) * gap) / sm_size;
+      if(cell_sz > 28) cell_sz = 28;
+    }
+    if(cell_sz < 12) cell_sz = 12;
+    int gw = sm_size * (cell_sz + gap) - gap;
+    int gh = sm_size * (cell_sz + gap) - gap;
+    int total_w = gw + cs;
+    int ox = (w - total_w) / 2 + cs;
+    int title_h = PBL_IF_ROUND_ELSE(40, 24);
+    int bottom_r = PBL_IF_ROUND_ELSE(32, 16);
+    int total_h = gh + cs;
+    int avail = h - title_h - bottom_r;
+    int oy = title_h + cs;
+    if(total_h < avail)
+      oy += PBL_IF_ROUND_ELSE((avail - total_h) * 2 / 5, (avail - total_h) / 2);
+
+    draw_sm_clues(ctx, ox, oy, cell_sz, gap, w);
+    for(int r = 0; r < sm_size; r++)
+      for(int c = 0; c < sm_size; c++)
+        draw_sm_cell(ctx, ox + c * (cell_sz + gap), oy + r * (cell_sz + gap), cell_sz, r, c);
+
+    if(s_state == ST_SM_CHECK && sm_error_msg[0]) {
+      graphics_context_set_text_color(ctx, GColorRed);
+      graphics_draw_text(ctx, sm_error_msg, f_sm,
+        GRect(0, h - PBL_IF_ROUND_ELSE(48, 32), w, 16),
+        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    }
+    graphics_context_set_text_color(ctx, GColorLightGray);
+    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
+      GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+  } else if(s_state == ST_SM_WIN) {
+    int ty = PBL_IF_ROUND_ELSE(pad + 16, 16);
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, SM_FIRE_CLR);
+    #else
+    graphics_context_set_text_color(ctx, GColorWhite);
+    #endif
+    graphics_draw_text(ctx, "SOLVED!", f_lg, GRect(0, ty, w, 34),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+    int small_sz = 16, small_gap = 1, cs = 14;
+    int gw = sm_size * (small_sz + small_gap) - small_gap;
+    int sox = (w - gw - cs) / 2 + cs;
+    int soy = ty + 50;
+    draw_sm_clues(ctx, sox, soy, small_sz, small_gap, w);
+    for(int r = 0; r < sm_size; r++)
+      for(int c = 0; c < sm_size; c++)
+        draw_sm_cell(ctx, sox + c * (small_sz + small_gap), soy + r * (small_sz + small_gap), small_sz, r, c);
+
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_draw_text(ctx, "BACK to menu", f_sm,
+      GRect(0, h - PBL_IF_ROUND_ELSE(28, 18), w, 16),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
+}
+
+// ============================================================================
 // CANVAS PROC
 // ============================================================================
 static void canvas_proc(Layer *layer, GContext *ctx) {
@@ -1487,6 +1929,8 @@ static void canvas_proc(Layer *layer, GContext *ctx) {
       draw_tents(ctx, w, h); break;
     case ST_BN_PLAY: case ST_BN_CHECK: case ST_BN_WIN:
       draw_binairo(ctx, w, h); break;
+    case ST_SM_PLAY: case ST_SM_CHECK: case ST_SM_WIN:
+      draw_smoke(ctx, w, h); break;
   }
 }
 
@@ -1506,7 +1950,8 @@ static void start_game(void) {
     s_state = ST_TUTORIAL;
   } else {
     if(s_game == GAME_TENTS) tn_init();
-    else bn_init();
+    else if(s_game == GAME_BINAIRO) bn_init();
+    else sm_init();
   }
 }
 
@@ -1539,8 +1984,13 @@ static void select_click(ClickRecognizerRef ref, void *ctx) {
       if(s_tut_page < 1) { s_tut_page++; }
       else {
         if(s_game == GAME_TENTS) tn_init();
-        else bn_init();
+        else if(s_game == GAME_BINAIRO) bn_init();
+        else sm_init();
       }
+      break;
+    case ST_SM_PLAY: case ST_SM_CHECK:
+      if(s_state == ST_SM_CHECK) { memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY; }
+      grid_move_right_stay_row();
       break;
     case ST_BN_PLAY: case ST_BN_CHECK:
       if(s_state == ST_BN_CHECK) { memset(bn_error, 0, sizeof(bn_error)); bn_error_msg[0] = '\0'; s_state = ST_BN_PLAY; }
@@ -1559,13 +2009,17 @@ static void up_click(ClickRecognizerRef ref, void *ctx) {
   (void)ref; (void)ctx;
   switch(s_state) {
     case ST_MAIN_MENU:
-      s_menu_cursor = (s_menu_cursor + 3) % 4;
+      s_menu_cursor = (s_menu_cursor + 4) % 5;
       break;
     case ST_DIFF_MENU: {
       int n = s_yesterday ? NUM_GAMES : 3;
       s_diff_cursor = (s_diff_cursor + n - 1) % n;
       break;
     }
+    case ST_SM_PLAY: case ST_SM_CHECK:
+      if(s_state == ST_SM_CHECK) { memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY; }
+      grid_move_up();
+      break;
     case ST_BN_PLAY: case ST_BN_CHECK:
       if(s_state == ST_BN_CHECK) { memset(bn_error, 0, sizeof(bn_error)); bn_error_msg[0] = '\0'; s_state = ST_BN_PLAY; }
       grid_move_up();
@@ -1583,13 +2037,17 @@ static void down_click(ClickRecognizerRef ref, void *ctx) {
   (void)ref; (void)ctx;
   switch(s_state) {
     case ST_MAIN_MENU:
-      s_menu_cursor = (s_menu_cursor + 1) % 4;
+      s_menu_cursor = (s_menu_cursor + 1) % 5;
       break;
     case ST_DIFF_MENU: {
       int n = s_yesterday ? NUM_GAMES : 3;
       s_diff_cursor = (s_diff_cursor + 1) % n;
       break;
     }
+    case ST_SM_PLAY: case ST_SM_CHECK:
+      if(s_state == ST_SM_CHECK) { memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY; }
+      grid_move_down();
+      break;
     case ST_BN_PLAY: case ST_BN_CHECK:
       if(s_state == ST_BN_CHECK) { memset(bn_error, 0, sizeof(bn_error)); bn_error_msg[0] = '\0'; s_state = ST_BN_PLAY; }
       grid_move_down();
@@ -1623,7 +2081,11 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
       if(s_state == ST_BN_CHECK) { memset(bn_error, 0, sizeof(bn_error)); bn_error_msg[0] = '\0'; s_state = ST_BN_PLAY; }
       else grid_move_left();
       break;
-    case ST_BN_WIN: case ST_TN_WIN:
+    case ST_SM_PLAY: case ST_SM_CHECK:
+      if(s_state == ST_SM_CHECK) { memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY; }
+      else grid_move_left();
+      break;
+    case ST_SM_WIN: case ST_BN_WIN: case ST_TN_WIN:
       s_state = ST_MAIN_MENU;
       break;
     case ST_TN_PLAY: case ST_TN_CHECK:
@@ -1641,6 +2103,13 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 static void tap_handler(AccelAxisType axis, int32_t direction) {
   (void)axis; (void)direction;
   switch(s_state) {
+    case ST_SM_PLAY:
+      sm_toggle_and_check();
+      break;
+    case ST_SM_CHECK:
+      memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY;
+      sm_toggle_and_check();
+      break;
     case ST_BN_PLAY:
       bn_toggle_and_check();
       break;
@@ -1662,7 +2131,11 @@ static void tap_handler(AccelAxisType axis, int32_t direction) {
 
 static void down_long_click(ClickRecognizerRef ref, void *ctx) {
   (void)ref; (void)ctx;
-  if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK) {
+  if(s_state == ST_SM_PLAY || s_state == ST_SM_CHECK) {
+    save_game_progress(GAME_SMOKE, sm_board, sm_size);
+    s_state = ST_MAIN_MENU;
+    layer_mark_dirty(s_canvas);
+  } else if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK) {
     save_game_progress(GAME_BINAIRO, bn_board, bn_size);
     s_state = ST_MAIN_MENU;
     layer_mark_dirty(s_canvas);
