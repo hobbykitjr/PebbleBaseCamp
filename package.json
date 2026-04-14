@@ -1,0 +1,32 @@
+{
+  "name": "pebble-basecamp",
+  "author": "Hobbykitjr",
+  "version": "1.0.0",
+  "pebble": {
+    "sdkVersion": "3",
+    "targetPlatforms": ["emery", "gabbro"],
+    "displayName": "Base Camp",
+    "enableMultiJS": false,
+    "projectType": "native",
+    "messageKeys": {},
+    "resources": {
+      "media": [
+        {
+          "type": "font",
+          "name": "ICON_FONT_20",
+          "file": "fonts/icons_20.ttf",
+          "characterRegex": "[\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]"
+        },
+        {
+          "type": "font",
+          "name": "ICON_FONT_14",
+          "file": "fonts/icons_14.ttf",
+          "characterRegex": "[\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]"
+        }
+      ]
+    },
+    "watchapp": {
+      "watchface": false
+    }
+  }
+}
