@@ -467,47 +467,76 @@ static bool bn_valid_partial(int board[MAX_GRID][MAX_GRID], int size, int r, int
   return true;
 }
 
-static bool bn_solve(int board[MAX_GRID][MAX_GRID], int size, int idx) {
-  if(idx == size * size) {
-    // Check row/col uniqueness
-    for(int r1 = 0; r1 < size; r1++)
-      for(int r2 = r1 + 1; r2 < size; r2++) {
-        bool same = true;
-        for(int c = 0; c < size && same; c++) if(board[r1][c] != board[r2][c]) same = false;
-        if(same) return false;
+// Iterative backtracking solver (recursive version blows Pebble's stack)
+static int  bn_first_val[64]; // which value to try first per cell
+static int8_t bn_tried[64];  // 0=untried, 1=tried first, 2=tried both
+
+static bool bn_rows_unique(int board[MAX_GRID][MAX_GRID], int size) {
+  for(int r1 = 0; r1 < size; r1++)
+    for(int r2 = r1 + 1; r2 < size; r2++) {
+      bool same = true;
+      for(int c = 0; c < size && same; c++) if(board[r1][c] != board[r2][c]) same = false;
+      if(same) return false;
+    }
+  for(int c1 = 0; c1 < size; c1++)
+    for(int c2 = c1 + 1; c2 < size; c2++) {
+      bool same = true;
+      for(int r = 0; r < size && same; r++) if(board[r][c1] != board[r][c2]) same = false;
+      if(same) return false;
+    }
+  return true;
+}
+
+static bool bn_solve_iterative(int board[MAX_GRID][MAX_GRID], int size) {
+  int total = size * size;
+  for(int i = 0; i < total; i++) {
+    bn_first_val[i] = (rand() % 2) ? BN_SUN : BN_MOON;
+    bn_tried[i] = 0;
+  }
+  int idx = 0;
+  while(idx >= 0 && idx < total) {
+    int r = idx / size, c = idx % size;
+    int v1 = bn_first_val[idx];
+    int v2 = (v1 == BN_SUN) ? BN_MOON : BN_SUN;
+    bool placed = false;
+    if(bn_tried[idx] == 0) {
+      bn_tried[idx] = 1;
+      if(bn_valid_partial(board, size, r, c, v1)) {
+        board[r][c] = v1; placed = true;
       }
-    for(int c1 = 0; c1 < size; c1++)
-      for(int c2 = c1 + 1; c2 < size; c2++) {
-        bool same = true;
-        for(int r = 0; r < size && same; r++) if(board[r][c1] != board[r][c2]) same = false;
-        if(same) return false;
+    }
+    if(!placed && bn_tried[idx] <= 1) {
+      bn_tried[idx] = 2;
+      if(bn_valid_partial(board, size, r, c, v2)) {
+        board[r][c] = v2; placed = true;
       }
-    return true;
+    }
+    if(placed) {
+      idx++;
+    } else {
+      // Backtrack
+      board[r][c] = 0;
+      bn_tried[idx] = 0;
+      idx--;
+      if(idx >= 0) board[idx / size][idx % size] = 0;
+    }
   }
-  int r = idx / size, c = idx % size;
-  int v1 = BN_SUN, v2 = BN_MOON;
-  if(rand() % 2) { v1 = BN_MOON; v2 = BN_SUN; }
-  if(bn_valid_partial(board, size, r, c, v1)) {
-    board[r][c] = v1;
-    if(bn_solve(board, size, idx + 1)) return true;
-    board[r][c] = 0;
-  }
-  if(bn_valid_partial(board, size, r, c, v2)) {
-    board[r][c] = v2;
-    if(bn_solve(board, size, idx + 1)) return true;
-    board[r][c] = 0;
-  }
-  return false;
+  if(idx < 0) return false;
+  return bn_rows_unique(board, size);
 }
 
 static void bn_generate(int size) {
-  int sol[MAX_GRID][MAX_GRID];
-  memset(sol, 0, sizeof(sol));
-  bn_solve(sol, size, 0);
-  memcpy(bn_solution, sol, sizeof(bn_solution));
+  memset(bn_solution, 0, sizeof(bn_solution));
+  // Try solving; if uniqueness fails, retry with offset
+  for(int attempt = 0; attempt < 10; attempt++) {
+    memset(bn_solution, 0, sizeof(bn_solution));
+    if(attempt > 0) srand(rand() + attempt);
+    if(bn_solve_iterative(bn_solution, size))
+      break;
+  }
 
-  // Create puzzle: remove cells
-  memcpy(bn_board, sol, sizeof(bn_board));
+  // Create puzzle: copy solution then remove cells
+  memcpy(bn_board, bn_solution, sizeof(bn_board));
   memset(g_locked, 0, sizeof(g_locked));
   for(int r = 0; r < size; r++)
     for(int c = 0; c < size; c++)
@@ -517,22 +546,18 @@ static void bn_generate(int size) {
   int clue_ratio_pct = (size == 6) ? 55 : 45;
   int target_empty = total * (100 - clue_ratio_pct) / 100;
 
-  // Shuffle cells for removal
-  int cells[64][2], nc = 0;
-  for(int r = 0; r < size; r++)
-    for(int c = 0; c < size; c++) { cells[nc][0] = r; cells[nc][1] = c; nc++; }
-  for(int i = nc - 1; i > 0; i--) {
+  // Build shuffled index array for removal
+  int8_t order[64];
+  for(int i = 0; i < total; i++) order[i] = (int8_t)i;
+  for(int i = total - 1; i > 0; i--) {
     int j = rand() % (i + 1);
-    int tr = cells[i][0], tc = cells[i][1];
-    cells[i][0] = cells[j][0]; cells[i][1] = cells[j][1];
-    cells[j][0] = tr; cells[j][1] = tc;
+    int8_t tmp = order[i]; order[i] = order[j]; order[j] = tmp;
   }
-  int removed = 0;
-  for(int i = 0; i < nc && removed < target_empty; i++) {
-    int r = cells[i][0], c = cells[i][1];
+  for(int i = 0; i < target_empty && i < total; i++) {
+    int idx = order[i];
+    int r = idx / size, c = idx % size;
     bn_board[r][c] = BN_EMPTY;
     g_locked[r][c] = false;
-    removed++;
   }
 }
 
@@ -846,8 +871,6 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
     if(!s_yesterday && i < 2 && game_done_today(s_game, i))
-      draw_checkmark(ctx, w - mx - 4, cy + 8);
-    if(s_yesterday && i < NUM_GAMES && game_done_any_today(i))
       draw_checkmark(ctx, w - mx - 4, cy + 8);
     cy += row_h;
   }
