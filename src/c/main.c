@@ -913,7 +913,7 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       lines[1] = "TAP: tent/grass/empty";
       lines[2] = "Grass = 'no tent here'";
       lines[3] = "Clues turn green";
-      lines[4] = "Hold BACK: save & exit";
+      lines[4] = "Hold DOWN: save & exit";
       nlines = 5;
     }
   } else {
@@ -927,7 +927,7 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
     } else {
       lines[0] = "TAP: toggle cell";
       lines[1] = "Arrows: move cursor";
-      lines[2] = "Hold BACK: save & exit";
+      lines[2] = "Hold DOWN: save & exit";
       nlines = 3;
     }
   }
@@ -1352,7 +1352,7 @@ static void draw_binairo(GContext *ctx, int w, int h) {
     }
 
     graphics_context_set_text_color(ctx, GColorLightGray);
-    graphics_draw_text(ctx, "TAP:toggle  Hold BACK:exit", f_sm,
+    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
       GRect(0, h - PBL_IF_ROUND_ELSE(22, 14), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
@@ -1570,7 +1570,7 @@ static void tap_handler(AccelAxisType axis, int32_t direction) {
   layer_mark_dirty(s_canvas);
 }
 
-static void back_long_click(ClickRecognizerRef ref, void *ctx) {
+static void down_long_click(ClickRecognizerRef ref, void *ctx) {
   (void)ref; (void)ctx;
   if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK ||
      s_state == ST_TN_PLAY || s_state == ST_TN_CHECK) {
@@ -1585,7 +1585,7 @@ static void click_config(void *context) {
   window_single_click_subscribe(BUTTON_ID_UP, up_click);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);
-  window_long_click_subscribe(BUTTON_ID_BACK, 500, back_long_click, NULL);
+  window_long_click_subscribe(BUTTON_ID_DOWN, 500, down_long_click, NULL);
 }
 
 // ============================================================================
