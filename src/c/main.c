@@ -708,7 +708,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
 
   int ty = PBL_IF_ROUND_ELSE(pad + 6, pad);
   #ifdef PBL_COLOR
-  graphics_context_set_text_color(ctx, GColorFromHEX(0xFF8800));
+  graphics_context_set_text_color(ctx, GColorFromHEX(0xFFAA00));
   #else
   graphics_context_set_text_color(ctx, GColorWhite);
   #endif
@@ -720,13 +720,13 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
   if(s_icon_font_20) {
     int icon_inset = PBL_IF_ROUND_ELSE(pad + 30, pad + 10);
     #ifdef PBL_COLOR
-    graphics_context_set_text_color(ctx, GColorFromHEX(0x00AA00));
+    graphics_context_set_text_color(ctx, GColorFromHEX(0x00FF00));
     #endif
     graphics_draw_text(ctx, FA_TREE, s_icon_font_20,
       GRect(icon_inset, ty + 6, 24, 24),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     #ifdef PBL_COLOR
-    graphics_context_set_text_color(ctx, GColorFromHEX(0xFF8800));
+    graphics_context_set_text_color(ctx, GColorFromHEX(0xFFAA00));
     #endif
     graphics_draw_text(ctx, FA_CARET_UP, s_icon_font_20,
       GRect(w - icon_inset - 24, ty + 6, 24, 24),
@@ -754,7 +754,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
     // Separator before Yesterday
     if(i == 2) {
       #ifdef PBL_COLOR
-      graphics_context_set_stroke_color(ctx, GColorFromHEX(0x334433));
+      graphics_context_set_stroke_color(ctx, GColorFromHEX(0x555555));
       #else
       graphics_context_set_stroke_color(ctx, GColorDarkGray);
       #endif
@@ -763,7 +763,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
     }
     if(sel) {
       #ifdef PBL_COLOR
-      graphics_context_set_fill_color(ctx, GColorFromHEX(0x1a3320));
+      graphics_context_set_fill_color(ctx, GColorFromHEX(0x005500));
       #else
       graphics_context_set_fill_color(ctx, GColorDarkGray);
       #endif
@@ -808,9 +808,9 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
   if(s_yesterday)
     graphics_context_set_fill_color(ctx, GColorBlack);
   else if(s_game == GAME_TENTS)
-    graphics_context_set_fill_color(ctx, GColorFromHEX(0x002211));
+    graphics_context_set_fill_color(ctx, GColorFromHEX(0x005500));
   else
-    graphics_context_set_fill_color(ctx, GColorFromHEX(0x0a0a2a));
+    graphics_context_set_fill_color(ctx, GColorFromHEX(0x000055));
   #else
   graphics_context_set_fill_color(ctx, GColorBlack);
   #endif
@@ -854,7 +854,7 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
     if(sel) {
       #ifdef PBL_COLOR
       GColor sel_bg = (s_game == GAME_TENTS || s_yesterday) ?
-        GColorFromHEX(0x1a4a2a) : GColorFromHEX(0x1a1a44);
+        GColorFromHEX(0x00AA00) : GColorFromHEX(0x0000AA);
       graphics_context_set_fill_color(ctx, sel_bg);
       #else
       graphics_context_set_fill_color(ctx, GColorDarkGray);
@@ -882,7 +882,7 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
 static void draw_tutorial(GContext *ctx, int w, int h) {
   #ifdef PBL_COLOR
   graphics_context_set_fill_color(ctx, (s_game == GAME_TENTS) ?
-    GColorFromHEX(0x002211) : GColorFromHEX(0x0a0a2a));
+    GColorFromHEX(0x005500) : GColorFromHEX(0x000055));
   #else
   graphics_context_set_fill_color(ctx, GColorBlack);
   #endif
@@ -1022,15 +1022,15 @@ static void draw_stats(GContext *ctx, int w, int h) {
 // DRAW: TENTS & TREES (green background)
 // ============================================================================
 #ifdef PBL_COLOR
-#define TN_BG        GColorFromHEX(0x002211)
-#define TN_GRID_BG   GColorFromHEX(0x0a3320)
-#define TN_TREE_CLR  GColorFromHEX(0x00aa00)
-#define TN_TREE_BG   GColorFromHEX(0x0a2a10)
-#define TN_TENT_CLR  GColorFromHEX(0xff8800)
-#define TN_TENT_BG   GColorFromHEX(0x2a2200)
-#define TN_GRASS_CLR GColorFromHEX(0x337744)
-#define TN_GRASS_BG  GColorFromHEX(0x0a2a18)
-#define TN_CLUE_OK   GColorFromHEX(0x55aa55)
+#define TN_BG        GColorFromHEX(0x005500)  // dark green
+#define TN_GRID_BG   GColorFromHEX(0x005500)  // empty cell = bg
+#define TN_TREE_CLR  GColorFromHEX(0x00FF00)  // bright green tree
+#define TN_TREE_BG   GColorFromHEX(0x005500)  // tree cell bg
+#define TN_TENT_CLR  GColorFromHEX(0xFFAA00)  // orange tent
+#define TN_TENT_BG   GColorFromHEX(0x555500)  // olive tent bg
+#define TN_GRASS_CLR GColorFromHEX(0x55AA55)  // medium green grass
+#define TN_GRASS_BG  GColorFromHEX(0x005500)  // grass cell bg
+#define TN_CLUE_OK   GColorFromHEX(0x55FF55)  // bright clue met
 #endif
 
 static void draw_tn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
@@ -1041,8 +1041,8 @@ static void draw_tn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
   bool in_warn = tn_warn[r][c];
 
   #ifdef PBL_COLOR
-  if(in_err) graphics_context_set_fill_color(ctx, GColorFromHEX(0x440000));
-  else if(in_warn && val == TN_TENT) graphics_context_set_fill_color(ctx, GColorFromHEX(0x332200));
+  if(in_err) graphics_context_set_fill_color(ctx, GColorFromHEX(0x550000));
+  else if(in_warn && val == TN_TENT) graphics_context_set_fill_color(ctx, GColorFromHEX(0x555500));
   else if(val == TN_TREE) graphics_context_set_fill_color(ctx, TN_TREE_BG);
   else if(val == TN_TENT) graphics_context_set_fill_color(ctx, TN_TENT_BG);
   else if(val == TN_GRASS) graphics_context_set_fill_color(ctx, TN_GRASS_BG);
@@ -1059,7 +1059,7 @@ static void draw_tn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
     graphics_context_set_stroke_width(ctx, 1);
   } else if(!locked && val == TN_EMPTY) {
     #ifdef PBL_COLOR
-    graphics_context_set_stroke_color(ctx, GColorFromHEX(0x1a4a2a));
+    graphics_context_set_stroke_color(ctx, GColorFromHEX(0x00AA00));
     #else
     graphics_context_set_stroke_color(ctx, GColorDarkGray);
     #endif
@@ -1081,7 +1081,7 @@ static void draw_tn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   } else if(val == TN_TENT) {
     #ifdef PBL_COLOR
-    GColor tc = in_err ? GColorRed : (in_warn ? GColorFromHEX(0xaaaa00) : TN_TENT_CLR);
+    GColor tc = in_err ? GColorRed : (in_warn ? GColorFromHEX(0xFFFF00) : TN_TENT_CLR);
     graphics_context_set_text_color(ctx, tc);
     #else
     graphics_context_set_text_color(ctx, GColorWhite);
@@ -1197,9 +1197,13 @@ static void draw_tents(GContext *ctx, int w, int h) {
     if(s_state == ST_TN_CHECK && tn_error_msg[0]) {
       graphics_context_set_text_color(ctx, GColorRed);
       graphics_draw_text(ctx, tn_error_msg, f_sm,
-        GRect(0, h - PBL_IF_ROUND_ELSE(28, 18), w, 16),
+        GRect(0, h - PBL_IF_ROUND_ELSE(40, 32), w, 16),
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
+    graphics_context_set_text_color(ctx, GColorLightGray);
+    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
+      GRect(0, h - PBL_IF_ROUND_ELSE(22, 14), w, 16),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   } else if(s_state == ST_TN_WIN) {
     int ty = PBL_IF_ROUND_ELSE(pad + 16, 16);
     #ifdef PBL_COLOR
@@ -1231,14 +1235,14 @@ static void draw_tents(GContext *ctx, int w, int h) {
 // DRAW: TWILIGHT (blue background, sun & moon)
 // ============================================================================
 #ifdef PBL_COLOR
-#define BN_BG        GColorFromHEX(0x0a0a2a)
-#define BN_GRID_BG   GColorFromHEX(0x161640)
-#define BN_CLUE_BG   GColorFromHEX(0x0d0d20)
-#define BN_PLAYER_BG GColorFromHEX(0x1a1a44)
-#define BN_SUN_CLR   GColorYellow
-#define BN_SUN_CLUE  GColorFromHEX(0x887700)
-#define BN_MOON_CLR  GColorCyan
-#define BN_MOON_CLUE GColorFromHEX(0x336666)
+#define BN_BG        GColorFromHEX(0x000055)  // dark blue
+#define BN_GRID_BG   GColorFromHEX(0x000055)  // empty cell = bg
+#define BN_CLUE_BG   GColorFromHEX(0x000055)  // clue cell bg
+#define BN_PLAYER_BG GColorFromHEX(0x005555)  // teal player cell
+#define BN_SUN_CLR   GColorYellow              // bright sun
+#define BN_SUN_CLUE  GColorFromHEX(0xAAAA00)  // dim sun (clue)
+#define BN_MOON_CLR  GColorCyan                // bright moon
+#define BN_MOON_CLUE GColorFromHEX(0x55AAAA)  // dim moon (clue)
 #endif
 
 static void draw_bn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
@@ -1249,8 +1253,8 @@ static void draw_bn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
   bool in_warn = bn_warn[r][c];
 
   #ifdef PBL_COLOR
-  if(in_err) graphics_context_set_fill_color(ctx, GColorFromHEX(0x440000));
-  else if(in_warn && !locked) graphics_context_set_fill_color(ctx, GColorFromHEX(0x332200));
+  if(in_err) graphics_context_set_fill_color(ctx, GColorFromHEX(0x550000));
+  else if(in_warn && !locked) graphics_context_set_fill_color(ctx, GColorFromHEX(0x555500));
   else if(locked) graphics_context_set_fill_color(ctx, BN_CLUE_BG);
   else if(val != BN_EMPTY) graphics_context_set_fill_color(ctx, BN_PLAYER_BG);
   else graphics_context_set_fill_color(ctx, BN_GRID_BG);
@@ -1266,7 +1270,7 @@ static void draw_bn_cell(GContext *ctx, int x, int y, int sz, int r, int c) {
     graphics_context_set_stroke_width(ctx, 1);
   } else if(!locked) {
     #ifdef PBL_COLOR
-    graphics_context_set_stroke_color(ctx, GColorFromHEX(0x2a2a55));
+    graphics_context_set_stroke_color(ctx, GColorFromHEX(0x5555AA));
     #else
     graphics_context_set_stroke_color(ctx, GColorDarkGray);
     #endif
