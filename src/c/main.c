@@ -62,6 +62,14 @@ enum { GAME_TENTS, GAME_BINAIRO };
 #define PG_BEST_SCORE_E  4
 #define PG_BEST_SCORE_H  5
 
+// Save/resume keys
+#define P_TN_SAVE_DAY   30
+#define P_TN_SAVE_DIFF  31
+#define P_TN_SAVE_DATA  32  // persist_write_data blob
+#define P_BN_SAVE_DAY   40
+#define P_BN_SAVE_DIFF  41
+#define P_BN_SAVE_DATA  42  // persist_write_data blob
+
 static int game_base(int g) {
   return (g == GAME_BINAIRO) ? P_BN_BASE : P_TN_BASE;
 }
@@ -194,8 +202,45 @@ static void grid_cursor_to_first_unlocked(void) {
 }
 
 // ============================================================================
+// SAVE / RESTORE PROGRESS
+// ============================================================================
+// Board cells packed as uint8_t[64] (row-major, val 0-3)
+static void save_game_progress(int game_id, int board[MAX_GRID][MAX_GRID], int size) {
+  if(s_yesterday) return;  // don't save yesterday puzzles
+  int day_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DAY : P_BN_SAVE_DAY;
+  int diff_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DIFF : P_BN_SAVE_DIFF;
+  int data_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DATA : P_BN_SAVE_DATA;
+  persist_write_int(day_key, day_number());
+  persist_write_int(diff_key, s_difficulty);
+  uint8_t buf[64];
+  for(int r = 0; r < size; r++)
+    for(int c = 0; c < size; c++)
+      buf[r * size + c] = (uint8_t)(g_locked[r][c] ? 0xFF : board[r][c]);
+  persist_write_data(data_key, buf, size * size);
+}
+
+static bool restore_game_progress(int game_id, int board[MAX_GRID][MAX_GRID], int size) {
+  if(s_yesterday) return false;
+  int day_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DAY : P_BN_SAVE_DAY;
+  int diff_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DIFF : P_BN_SAVE_DIFF;
+  int data_key = (game_id == GAME_TENTS) ? P_TN_SAVE_DATA : P_BN_SAVE_DATA;
+  if(!persist_exists(day_key) || persist_read_int(day_key) != day_number()) return false;
+  if(!persist_exists(diff_key) || persist_read_int(diff_key) != s_difficulty) return false;
+  uint8_t buf[64];
+  if(persist_read_data(data_key, buf, size * size) != (int)(size * size)) return false;
+  for(int r = 0; r < size; r++)
+    for(int c = 0; c < size; c++) {
+      if(buf[r * size + c] == 0xFF) continue;  // locked cell, keep as-is
+      board[r][c] = buf[r * size + c];
+    }
+  return true;
+}
+
+// ============================================================================
 // TENTS & TREES
 // ============================================================================
+static void tn_update_warnings(void);  // forward decl
+static void bn_update_warnings(void);  // forward decl
 static int tn_size;
 static int tn_board[MAX_GRID][MAX_GRID];
 static int tn_solution[MAX_GRID][MAX_GRID];
@@ -296,9 +341,11 @@ static void tn_init(void) {
     for(int c = 0; c < tn_size; c++)
       g_locked[r][c] = (tn_board[r][c] == TN_TREE);
   grid_cursor_to_first_unlocked();
+  restore_game_progress(GAME_TENTS, tn_board, tn_size);
   memset(tn_error, 0, sizeof(tn_error));
   memset(tn_warn, 0, sizeof(tn_warn));
   tn_error_msg[0] = '\0';
+  tn_update_warnings();
   s_state = ST_TN_PLAY;
 }
 
@@ -567,9 +614,11 @@ static void bn_init(void) {
   bn_generate(bn_size);
   g_rows = g_cols = bn_size;
   grid_cursor_to_first_unlocked();
+  restore_game_progress(GAME_BINAIRO, bn_board, bn_size);
   memset(bn_error, 0, sizeof(bn_error));
   memset(bn_warn, 0, sizeof(bn_warn));
   bn_error_msg[0] = '\0';
+  bn_update_warnings();
   s_state = ST_BN_PLAY;
 }
 
@@ -899,15 +948,18 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
   const char *lines[8];
   int nlines;
 
+  // Flag for custom first line with inline icons (Tents page 0)
+  bool tn_custom_line = false;
+
   if(s_game == GAME_TENTS) {
     title = "TENTS & TREES";
     if(s_tut_page == 0) {
-      lines[0] = "Every tree needs a tent";
-      lines[1] = "Tents go next to trees";
-      lines[2] = "Diagonal doesn't count!";
-      lines[3] = "No 2 tents may touch";
-      lines[4] = "Match row/col counts";
-      nlines = 5;
+      tn_custom_line = true;   // "Every [tree] needs a [tent]" drawn with icons
+      lines[0] = "Tents go next to trees";
+      lines[1] = "Diagonal doesn't count!";
+      lines[2] = "No 2 tents may touch";
+      lines[3] = "Match row/col counts";
+      nlines = 4;
     } else {
       lines[0] = "Arrows: move cursor";
       lines[1] = "TAP: tent/grass/empty";
@@ -941,6 +993,40 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
   #ifdef PBL_COLOR
   graphics_context_set_text_color(ctx, GColorYellow);
   #endif
+
+  // Custom first line: "Every [tree] needs a [tent]" with inline icons
+  if(tn_custom_line && s_icon_font_20) {
+    // Layout: "Every" tree_icon "needs a" tent_icon — centered
+    int total_w = 158;
+    int lx = (w - total_w) / 2;
+    graphics_draw_text(ctx, "Every", f_md,
+      GRect(lx, ly, 50, 24), GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, GColorFromHEX(0x00FF00));
+    #endif
+    graphics_draw_text(ctx, FA_TREE, s_icon_font_20,
+      GRect(lx + 52, ly, 20, 24), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, GColorYellow);
+    #endif
+    graphics_draw_text(ctx, "needs a", f_md,
+      GRect(lx + 74, ly, 64, 24), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, GColorFromHEX(0xFFAA00));
+    #endif
+    graphics_draw_text(ctx, FA_CARET_UP, s_icon_font_20,
+      GRect(lx + 138, ly, 20, 24), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    #ifdef PBL_COLOR
+    graphics_context_set_text_color(ctx, GColorYellow);
+    #endif
+    ly += 24;
+  } else if(tn_custom_line) {
+    // Fallback without icon font
+    graphics_draw_text(ctx, "Every tree needs a tent", f_md,
+      GRect(mx, ly, w - mx * 2, 22), GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+    ly += 22;
+  }
+
   for(int i = 0; i < nlines; i++) {
     graphics_draw_text(ctx, lines[i], f_md,
       GRect(mx, ly, w - mx * 2, 22),
@@ -1197,12 +1283,12 @@ static void draw_tents(GContext *ctx, int w, int h) {
     if(s_state == ST_TN_CHECK && tn_error_msg[0]) {
       graphics_context_set_text_color(ctx, GColorRed);
       graphics_draw_text(ctx, tn_error_msg, f_sm,
-        GRect(0, h - PBL_IF_ROUND_ELSE(40, 32), w, 16),
+        GRect(0, h - PBL_IF_ROUND_ELSE(48, 32), w, 16),
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
     graphics_context_set_text_color(ctx, GColorLightGray);
     graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
-      GRect(0, h - PBL_IF_ROUND_ELSE(22, 14), w, 16),
+      GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   } else if(s_state == ST_TN_WIN) {
     int ty = PBL_IF_ROUND_ELSE(pad + 16, 16);
@@ -1351,13 +1437,13 @@ static void draw_binairo(GContext *ctx, int w, int h) {
     if(s_state == ST_BN_CHECK && bn_error_msg[0]) {
       graphics_context_set_text_color(ctx, GColorRed);
       graphics_draw_text(ctx, bn_error_msg, f_sm,
-        GRect(0, h - PBL_IF_ROUND_ELSE(40, 32), w, 16),
+        GRect(0, h - PBL_IF_ROUND_ELSE(48, 32), w, 16),
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
 
     graphics_context_set_text_color(ctx, GColorLightGray);
     graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
-      GRect(0, h - PBL_IF_ROUND_ELSE(22, 14), w, 16),
+      GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
   } else if(s_state == ST_BN_WIN) {
@@ -1576,8 +1662,12 @@ static void tap_handler(AccelAxisType axis, int32_t direction) {
 
 static void down_long_click(ClickRecognizerRef ref, void *ctx) {
   (void)ref; (void)ctx;
-  if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK ||
-     s_state == ST_TN_PLAY || s_state == ST_TN_CHECK) {
+  if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK) {
+    save_game_progress(GAME_BINAIRO, bn_board, bn_size);
+    s_state = ST_MAIN_MENU;
+    layer_mark_dirty(s_canvas);
+  } else if(s_state == ST_TN_PLAY || s_state == ST_TN_CHECK) {
+    save_game_progress(GAME_TENTS, tn_board, tn_size);
     s_state = ST_MAIN_MENU;
     layer_mark_dirty(s_canvas);
   }
