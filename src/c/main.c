@@ -2,7 +2,7 @@
  * Base Camp - Daily outdoor puzzle games for Pebble
  * Targets: emery (Time 2), gabbro (Round 2)
  *
- * Games: Tents & Trees, Binairo (Sun & Moon)
+ * Games: Tents & Trees, Twilight (Sun & Moon binary puzzle)
  * Features: Easy/Hard, streak tracking, tutorials, yesterday replay
  */
 
@@ -744,7 +744,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
   // Menu items: Tents, Binairo, ---, Yesterday, Stats
-  const char *items[] = {"Tents & Trees", "Binairo", "Yesterday", "Stats"};
+  const char *items[] = {"Tents & Trees", "Twilight", "Yesterday", "Stats"};
   int my = ty + 54;
   int row_h = 26;
   int mx = PBL_IF_ROUND_ELSE(pad + 24, pad + 16);
@@ -835,11 +835,11 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
     graphics_draw_text(ctx, "YESTERDAY", f_lg,
       GRect(0, ty, w, 34),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-    opts[0] = "Tents & Trees"; opts[1] = "Binairo";
+    opts[0] = "Tents & Trees"; opts[1] = "Twilight";
     num_opts = 2;
   } else {
     graphics_context_set_text_color(ctx, GColorWhite);
-    const char *title = (s_game == GAME_TENTS) ? "TENTS" : "BINAIRO";
+    const char *title = (s_game == GAME_TENTS) ? "TENTS" : "TWILIGHT";
     graphics_draw_text(ctx, title, f_lg,
       GRect(0, ty, w, 34),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
@@ -913,11 +913,11 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       lines[1] = "TAP: tent/grass/empty";
       lines[2] = "Grass = 'no tent here'";
       lines[3] = "Clues turn green";
-      lines[4] = "when count is met";
+      lines[4] = "Hold BACK: save & exit";
       nlines = 5;
     }
   } else {
-    title = "BINAIRO";
+    title = "TWILIGHT";
     if(s_tut_page == 0) {
       lines[0] = "Fill grid with suns/moons";
       lines[1] = "No 3 same in a row/col";
@@ -927,7 +927,7 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
     } else {
       lines[0] = "TAP: toggle cell";
       lines[1] = "Arrows: move cursor";
-      lines[2] = "BACK: save & exit";
+      lines[2] = "Hold BACK: save & exit";
       nlines = 3;
     }
   }
@@ -1001,7 +1001,7 @@ static void draw_stats(GContext *ctx, int w, int h) {
     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
   ly += 26;
 
-  const char *gn[] = {"Tnt", "Bin"};
+  const char *gn[] = {"Tnt", "Twi"};
   for(int g = 0; g < NUM_GAMES; g++) {
     int base = game_base(g);
     int we = persist_exists(base + PG_WINS_EASY) ? persist_read_int(base + PG_WINS_EASY) : 0;
@@ -1228,7 +1228,7 @@ static void draw_tents(GContext *ctx, int w, int h) {
 }
 
 // ============================================================================
-// DRAW: BINAIRO (blue background, sun & moon)
+// DRAW: TWILIGHT (blue background, sun & moon)
 // ============================================================================
 #ifdef PBL_COLOR
 #define BN_BG        GColorFromHEX(0x0a0a2a)
@@ -1317,7 +1317,7 @@ static void draw_binairo(GContext *ctx, int w, int h) {
   if(s_state == ST_BN_PLAY || s_state == ST_BN_CHECK) {
     int ty = PBL_IF_ROUND_ELSE(pad + 4, 0);
     graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_draw_text(ctx, "BINAIRO", f_md, GRect(0, ty, w, 22),
+    graphics_draw_text(ctx, "TWILIGHT", f_md, GRect(0, ty, w, 22),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
     int gap = 2;
@@ -1352,7 +1352,7 @@ static void draw_binairo(GContext *ctx, int w, int h) {
     }
 
     graphics_context_set_text_color(ctx, GColorLightGray);
-    graphics_draw_text(ctx, "TAP:toggle  BACK:exit", f_sm,
+    graphics_draw_text(ctx, "TAP:toggle  Hold BACK:exit", f_sm,
       GRect(0, h - PBL_IF_ROUND_ELSE(22, 14), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
