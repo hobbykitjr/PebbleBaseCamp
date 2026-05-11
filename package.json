@@ -1,32 +1,38 @@
 {
-  "name": "pebble-basecamp",
-  "author": "Hobbykitjr",
-  "version": "1.0.0",
-  "pebble": {
-    "sdkVersion": "3",
-    "targetPlatforms": ["emery", "gabbro"],
-    "displayName": "Base Camp",
-    "enableMultiJS": false,
-    "projectType": "native",
-    "messageKeys": {},
-    "resources": {
-      "media": [
-        {
-          "type": "font",
-          "name": "ICON_FONT_20",
-          "file": "fonts/icons_20.ttf",
-          "characterRegex": "[\\uf06d\\uf0c2\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]"
+    "author": "Hobbykitjr",
+    "dependencies": {},
+    "keywords": [],
+    "name": "pebble-basecamp",
+    "pebble": {
+        "displayName": "Base Camp",
+        "enableMultiJS": false,
+        "messageKeys": [],
+        "projectType": "native",
+        "resources": {
+            "media": [
+                {
+                    "characterRegex": "[\\uf06d\\uf0c2\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]",
+                    "file": "fonts/icons_20.ttf",
+                    "name": "ICON_FONT_20",
+                    "type": "font"
+                },
+                {
+                    "characterRegex": "[\\uf06d\\uf0c2\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]",
+                    "file": "fonts/icons_14.ttf",
+                    "name": "ICON_FONT_14",
+                    "type": "font"
+                }
+            ]
         },
-        {
-          "type": "font",
-          "name": "ICON_FONT_14",
-          "file": "fonts/icons_14.ttf",
-          "characterRegex": "[\\uf06d\\uf0c2\\uf0d8\\uf111\\uf185\\uf186\\uf1bb]"
+        "sdkVersion": "3",
+        "targetPlatforms": [
+            "emery",
+            "gabbro"
+        ],
+        "uuid": "89772da1-4438-46c9-a452-68b46bc06cc8",
+        "watchapp": {
+            "watchface": false
         }
-      ]
     },
-    "watchapp": {
-      "watchface": false
-    }
-  }
+    "version": "1.1.0"
 }
