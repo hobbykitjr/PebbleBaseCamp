@@ -1177,8 +1177,8 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
     } else {
       lines[0] = "Arrows: move cursor";
       lines[1] = "TAP: tent/grass/empty";
-      lines[2] = "Grass = 'no tent here'";
-      lines[3] = "Clues turn green";
+      lines[2] = "(or hold SEL to toggle)";
+      lines[3] = "Grass = 'no tent here'";
       lines[4] = "Hold DOWN: save & exit";
       nlines = 5;
     }
@@ -1192,9 +1192,10 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       nlines = 4;
     } else {
       lines[0] = "TAP: toggle cell";
-      lines[1] = "Arrows: move cursor";
-      lines[2] = "Hold DOWN: save & exit";
-      nlines = 3;
+      lines[1] = "(or hold SEL to toggle)";
+      lines[2] = "Arrows: move cursor";
+      lines[3] = "Hold DOWN: save & exit";
+      nlines = 4;
     }
   } else {
     title = "SMOKE SIGNAL";
@@ -1206,9 +1207,10 @@ static void draw_tutorial(GContext *ctx, int w, int h) {
       nlines = 4;
     } else {
       lines[0] = "TAP: fill/empty cell";
-      lines[1] = "Arrows: move cursor";
-      lines[2] = "Hold DOWN: save & exit";
-      nlines = 3;
+      lines[1] = "(or hold SEL to toggle)";
+      lines[2] = "Arrows: move cursor";
+      lines[3] = "Hold DOWN: save & exit";
+      nlines = 4;
     }
   }
 
@@ -2099,9 +2101,50 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
   layer_mark_dirty(s_canvas);
 }
 
+// ============================================================================
+// RAW ACCEL TAP DETECTION
+// ============================================================================
+#define TAP_THRESHOLD    1800   // mG spike to count as tap
+#define TAP_COOLDOWN_MS  400    // minimum ms between detected taps
+static uint32_t s_last_tap_time = 0;
+static int16_t s_prev_accel[3] = {0, 0, 0};  // previous sample x,y,z
+
+static void do_tap_action(void);  // forward decl
+
+static void accel_data_handler(AccelData *data, uint32_t num_samples) {
+  if(num_samples == 0) return;
+  // Check each sample for a spike vs previous
+  for(uint32_t i = 0; i < num_samples; i++) {
+    if(data[i].did_vibrate) continue;  // ignore vibration-caused spikes
+    int16_t dx = data[i].x - s_prev_accel[0];
+    int16_t dy = data[i].y - s_prev_accel[1];
+    int16_t dz = data[i].z - s_prev_accel[2];
+    // Use max absolute delta (cheaper than sqrt)
+    int16_t adx = dx < 0 ? -dx : dx;
+    int16_t ady = dy < 0 ? -dy : dy;
+    int16_t adz = dz < 0 ? -dz : dz;
+    int16_t peak = adx > ady ? adx : ady;
+    if(adz > peak) peak = adz;
+
+    s_prev_accel[0] = data[i].x;
+    s_prev_accel[1] = data[i].y;
+    s_prev_accel[2] = data[i].z;
+
+    if(peak >= TAP_THRESHOLD) {
+      time_t ts; uint16_t tms;
+      time_ms(&ts, &tms);
+      uint32_t now = (uint32_t)(ts * 1000 + tms);
+      if(now - s_last_tap_time >= TAP_COOLDOWN_MS) {
+        s_last_tap_time = now;
+        do_tap_action();
+        return;  // one tap per batch max
+      }
+    }
+  }
+}
+
 // TAP handler — Pebble accel tap or mapped to middle button
-static void tap_handler(AccelAxisType axis, int32_t direction) {
-  (void)axis; (void)direction;
+static void do_tap_action(void) {
   switch(s_state) {
     case ST_SM_PLAY:
       sm_toggle_and_check();
@@ -2124,9 +2167,31 @@ static void tap_handler(AccelAxisType axis, int32_t direction) {
       memset(tn_error, 0, sizeof(tn_error)); tn_error_msg[0] = '\0'; s_state = ST_TN_PLAY;
       tn_toggle_and_check();
       break;
-    default: break;
+    default: return;
   }
   layer_mark_dirty(s_canvas);
+}
+
+static void tap_handler(AccelAxisType axis, int32_t direction) {
+  (void)axis; (void)direction;
+  // Cooldown check to avoid double-fire with raw detection
+  uint32_t now = 0;
+  time_t t; uint16_t ms;
+  time_ms(&t, &ms);
+  now = (uint32_t)(t * 1000 + ms);
+  if(now - s_last_tap_time < TAP_COOLDOWN_MS) return;
+  s_last_tap_time = now;
+  do_tap_action();
+}
+
+static void select_long_click(ClickRecognizerRef ref, void *ctx) {
+  (void)ref; (void)ctx;
+  // Long-press SELECT as fallback toggle for devices where accel tap doesn't work
+  if(s_state == ST_SM_PLAY || s_state == ST_SM_CHECK ||
+     s_state == ST_BN_PLAY || s_state == ST_BN_CHECK ||
+     s_state == ST_TN_PLAY || s_state == ST_TN_CHECK) {
+    do_tap_action();
+  }
 }
 
 static void down_long_click(ClickRecognizerRef ref, void *ctx) {
@@ -2152,6 +2217,7 @@ static void click_config(void *context) {
   window_single_click_subscribe(BUTTON_ID_UP, up_click);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click);
   window_single_click_subscribe(BUTTON_ID_BACK, back_click);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 400, select_long_click, NULL);
   window_long_click_subscribe(BUTTON_ID_DOWN, 500, down_long_click, NULL);
 }
 
@@ -2201,11 +2267,15 @@ static void init(void) {
   });
   window_stack_push(s_win, true);
 
-  // Subscribe to tap
+  // Subscribe to tap (firmware-level detection)
   accel_tap_service_subscribe(tap_handler);
+  // Subscribe to raw accel data for custom tap detection (fallback)
+  accel_data_service_subscribe(5, accel_data_handler);
+  accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
 }
 
 static void deinit(void) {
+  accel_data_service_unsubscribe();
   accel_tap_service_unsubscribe();
   if(s_icon_font_20) fonts_unload_custom_font(s_icon_font_20);
   if(s_icon_font_14) fonts_unload_custom_font(s_icon_font_14);
