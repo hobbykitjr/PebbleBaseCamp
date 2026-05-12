@@ -2102,24 +2102,38 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 }
 
 // ============================================================================
-// RAW ACCEL TAP DETECTION
+// TOUCH / TAP INPUT
 // ============================================================================
-#define TAP_THRESHOLD    1000   // mG spike to count as tap
 #define TAP_COOLDOWN_MS  400    // minimum ms between detected taps
 static uint32_t s_last_tap_time = 0;
-static int16_t s_prev_accel[3] = {0, 0, 0};  // previous sample x,y,z
+static bool s_touch_available = false;
 
 static void do_tap_action(void);  // forward decl
 
+// Touch service handler — tap anywhere to toggle
+static void touch_handler(const TouchEvent *event, void *context) {
+  (void)context;
+  if(event->type != TouchEvent_Touchdown) return;
+  // Cooldown to avoid rapid repeated toggles
+  time_t t; uint16_t ms;
+  time_ms(&t, &ms);
+  uint32_t now = (uint32_t)(t * 1000 + ms);
+  if(now - s_last_tap_time < TAP_COOLDOWN_MS) return;
+  s_last_tap_time = now;
+  do_tap_action();
+}
+
+// Accel tap fallback for non-touch hardware
+#define TAP_THRESHOLD    1000   // mG spike to count as tap
+static int16_t s_prev_accel[3] = {0, 0, 0};
+
 static void accel_data_handler(AccelData *data, uint32_t num_samples) {
   if(num_samples == 0) return;
-  // Check each sample for a spike vs previous
   for(uint32_t i = 0; i < num_samples; i++) {
-    if(data[i].did_vibrate) continue;  // ignore vibration-caused spikes
+    if(data[i].did_vibrate) continue;
     int16_t dx = data[i].x - s_prev_accel[0];
     int16_t dy = data[i].y - s_prev_accel[1];
     int16_t dz = data[i].z - s_prev_accel[2];
-    // Use max absolute delta (cheaper than sqrt)
     int16_t adx = dx < 0 ? -dx : dx;
     int16_t ady = dy < 0 ? -dy : dy;
     int16_t adz = dz < 0 ? -dz : dz;
@@ -2137,7 +2151,7 @@ static void accel_data_handler(AccelData *data, uint32_t num_samples) {
       if(now - s_last_tap_time >= TAP_COOLDOWN_MS) {
         s_last_tap_time = now;
         do_tap_action();
-        return;  // one tap per batch max
+        return;
       }
     }
   }
@@ -2267,16 +2281,24 @@ static void init(void) {
   });
   window_stack_push(s_win, true);
 
-  // Subscribe to tap (firmware-level detection)
-  accel_tap_service_subscribe(tap_handler);
-  // Subscribe to raw accel data for custom tap detection (fallback)
-  accel_data_service_subscribe(5, accel_data_handler);
-  accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
+  // Use touch service if available, otherwise fall back to accel tap detection
+  s_touch_available = touch_service_is_enabled();
+  if(s_touch_available) {
+    touch_service_subscribe(touch_handler, NULL);
+  } else {
+    accel_tap_service_subscribe(tap_handler);
+    accel_data_service_subscribe(5, accel_data_handler);
+    accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
+  }
 }
 
 static void deinit(void) {
-  accel_data_service_unsubscribe();
-  accel_tap_service_unsubscribe();
+  if(s_touch_available) {
+    touch_service_unsubscribe();
+  } else {
+    accel_data_service_unsubscribe();
+    accel_tap_service_unsubscribe();
+  }
   if(s_icon_font_20) fonts_unload_custom_font(s_icon_font_20);
   if(s_icon_font_14) fonts_unload_custom_font(s_icon_font_14);
   window_destroy(s_win);
