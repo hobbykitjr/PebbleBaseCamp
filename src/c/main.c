@@ -2104,7 +2104,7 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 // ============================================================================
 // RAW ACCEL TAP DETECTION
 // ============================================================================
-#define TAP_THRESHOLD    1800   // mG spike to count as tap
+#define TAP_THRESHOLD    1000   // mG spike to count as tap
 #define TAP_COOLDOWN_MS  400    // minimum ms between detected taps
 static uint32_t s_last_tap_time = 0;
 static int16_t s_prev_accel[3] = {0, 0, 0};  // previous sample x,y,z
