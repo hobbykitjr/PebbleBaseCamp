@@ -60,6 +60,7 @@ enum { GAME_TENTS, GAME_BINAIRO, GAME_SMOKE };
 #define P_BEST_STREAK    2
 #define P_TOTAL_DAYS     3
 #define P_TUTORIAL_SEEN  4
+#define P_TOUCH_DIRECT   5   // 1 = tap cell directly, 0 = tap toggles cursor cell
 
 #define P_TN_BASE       10
 #define P_BN_BASE       20
@@ -108,6 +109,7 @@ static int s_streak = 0;
 static int s_best_streak = 0;
 static int s_total_days = 0;
 static int s_tutorial_seen = 0;
+static bool s_touch_direct = true;  // direct cell tap vs toggle-only
 
 // ============================================================================
 // DAILY SEED
@@ -163,6 +165,9 @@ static void mark_game_done(int game, int diff, int score) {
 static int g_rows, g_cols;
 static int g_cursor_r, g_cursor_c;
 static bool g_locked[MAX_GRID][MAX_GRID];
+
+// Cached grid layout for touch hit-testing (updated each draw)
+static int g_grid_ox, g_grid_oy, g_grid_cell_sz, g_grid_gap, g_grid_size;
 
 static void grid_skip_locked(int dr, int dc) {
   for(int i = 0; i < g_rows * g_cols; i++) {
@@ -1006,6 +1011,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
   int row_h = 26;
   int mx = PBL_IF_ROUND_ELSE(pad + 24, pad + 16);
 
+  g_menu_item_n = 5;
   for(int i = 0; i < 5; i++) {
     bool sel = (s_menu_cursor == i);
     // Separator before Yesterday
@@ -1018,6 +1024,7 @@ static void draw_main_menu(GContext *ctx, int w, int h) {
       graphics_draw_line(ctx, GPoint(mx, my - 2), GPoint(w - mx, my - 2));
       my += 4;
     }
+    g_menu_item[i] = GRect(mx - 4, my, w - (mx - 4) * 2, row_h);
     if(sel) {
       #ifdef PBL_COLOR
       graphics_context_set_fill_color(ctx, GColorFromHEX(0x005500));
@@ -1109,7 +1116,9 @@ static void draw_diff_menu(GContext *ctx, int w, int h) {
 
   int cy = h / 2 - (num_opts * 16);
   int row_h = 32;
+  g_diff_item_n = num_opts;
   for(int i = 0; i < num_opts; i++) {
+    g_diff_item[i] = GRect(mx, cy, w - mx * 2, row_h);
     bool sel = (s_diff_cursor == i);
     if(sel) {
       #ifdef PBL_COLOR
@@ -1505,6 +1514,8 @@ static void draw_tents(GContext *ctx, int w, int h) {
     if(total_h < avail)
       oy += PBL_IF_ROUND_ELSE((avail - total_h) * 2 / 5, (avail - total_h) / 2);
 
+    g_grid_ox = ox; g_grid_oy = oy; g_grid_cell_sz = cell_sz; g_grid_gap = gap; g_grid_size = tn_size;
+
     draw_tn_clues(ctx, ox, oy, cell_sz, gap, w);
     for(int r = 0; r < tn_size; r++)
       for(int c = 0; c < tn_size; c++)
@@ -1517,7 +1528,7 @@ static void draw_tents(GContext *ctx, int w, int h) {
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
     graphics_context_set_text_color(ctx, GColorLightGray);
-    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
+    graphics_draw_text(ctx, s_touch_direct ? "TAP cell  Hold DN:exit" : "TAP:toggle  Hold DN:exit", f_sm,
       GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   } else if(s_state == ST_TN_WIN) {
@@ -1660,6 +1671,8 @@ static void draw_binairo(GContext *ctx, int w, int h) {
     if(gh < avail_h)
       oy += PBL_IF_ROUND_ELSE((avail_h - gh) * 2 / 5, (avail_h - gh) / 2);
 
+    g_grid_ox = ox; g_grid_oy = oy; g_grid_cell_sz = cell_sz; g_grid_gap = gap; g_grid_size = bn_size;
+
     for(int r = 0; r < bn_size; r++)
       for(int c = 0; c < bn_size; c++)
         draw_bn_cell(ctx, ox + c * (cell_sz + gap), oy + r * (cell_sz + gap), cell_sz, r, c);
@@ -1672,7 +1685,7 @@ static void draw_binairo(GContext *ctx, int w, int h) {
     }
 
     graphics_context_set_text_color(ctx, GColorLightGray);
-    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
+    graphics_draw_text(ctx, s_touch_direct ? "TAP cell  Hold DN:exit" : "TAP:toggle  Hold DN:exit", f_sm,
       GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
@@ -1873,6 +1886,8 @@ static void draw_smoke(GContext *ctx, int w, int h) {
     if(total_h < avail)
       oy += PBL_IF_ROUND_ELSE((avail - total_h) * 2 / 5, (avail - total_h) / 2);
 
+    g_grid_ox = ox; g_grid_oy = oy; g_grid_cell_sz = cell_sz; g_grid_gap = gap; g_grid_size = sm_size;
+
     draw_sm_clues(ctx, ox, oy, cell_sz, gap, w);
     for(int r = 0; r < sm_size; r++)
       for(int c = 0; c < sm_size; c++)
@@ -1885,7 +1900,7 @@ static void draw_smoke(GContext *ctx, int w, int h) {
         GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
     }
     graphics_context_set_text_color(ctx, GColorLightGray);
-    graphics_draw_text(ctx, "TAP:toggle  Hold DN:exit", f_sm,
+    graphics_draw_text(ctx, s_touch_direct ? "TAP cell  Hold DN:exit" : "TAP:toggle  Hold DN:exit", f_sm,
       GRect(0, h - PBL_IF_ROUND_ELSE(32, 16), w, 16),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
@@ -2107,9 +2122,38 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 #define TAP_COOLDOWN_MS  400    // minimum ms between detected taps
 static uint32_t s_last_tap_time = 0;
 
-static void do_tap_action(void);  // forward decl
+// Cached menu layout for touch
+static GRect g_menu_item[5];
+static int   g_menu_item_n;
+static GRect g_diff_item[3];
+static int   g_diff_item_n;
 
-// Touch service handler — tap screen anywhere to toggle
+static void do_tap_action(void);  // forward decl
+static void select_click(ClickRecognizerRef ref, void *ctx);
+
+static bool point_in_rect(int tx, int ty, GRect r) {
+  return tx >= r.origin.x && tx < r.origin.x + r.size.w &&
+         ty >= r.origin.y && ty < r.origin.y + r.size.h;
+}
+
+// Map touch coordinates to grid cell. Returns true if hit, sets g_cursor_r/c.
+static bool touch_hit_grid(int tx, int ty) {
+  if(g_grid_cell_sz <= 0 || g_grid_size <= 0) return false;
+  int stride = g_grid_cell_sz + g_grid_gap;
+  int col = (tx - g_grid_ox) / stride;
+  int row = (ty - g_grid_oy) / stride;
+  if(col < 0 || col >= g_grid_size || row < 0 || row >= g_grid_size) return false;
+  // Verify tap is within the cell, not in the gap
+  int cx = (tx - g_grid_ox) - col * stride;
+  int cy = (ty - g_grid_oy) - row * stride;
+  if(cx < 0 || cx >= g_grid_cell_sz || cy < 0 || cy >= g_grid_cell_sz) return false;
+  if(g_locked[row][col]) return false;
+  g_cursor_r = row;
+  g_cursor_c = col;
+  return true;
+}
+
+// Touch service handler — tap cell to move cursor and toggle
 static void touch_handler(const TouchEvent *event, void *context) {
   (void)context;
   if(event->type != TouchEvent_Touchdown) return;
@@ -2118,7 +2162,55 @@ static void touch_handler(const TouchEvent *event, void *context) {
   uint32_t now = (uint32_t)(t * 1000 + ms);
   if(now - s_last_tap_time < TAP_COOLDOWN_MS) return;
   s_last_tap_time = now;
+
+  int tx = event->x, ty = event->y;
+
+  if(s_touch_direct) {
+    // Main menu: tap a menu item directly
+    if(s_state == ST_MAIN_MENU) {
+      for(int i = 0; i < g_menu_item_n; i++) {
+        if(point_in_rect(tx, ty, g_menu_item[i])) {
+          s_menu_cursor = i;
+          select_click(NULL, NULL);
+          return;
+        }
+      }
+      return; // tap outside items = ignore
+    }
+    // Difficulty menu: tap an option directly
+    if(s_state == ST_DIFF_MENU) {
+      for(int i = 0; i < g_diff_item_n; i++) {
+        if(point_in_rect(tx, ty, g_diff_item[i])) {
+          s_diff_cursor = i;
+          select_click(NULL, NULL);
+          return;
+        }
+      }
+      return;
+    }
+    // Tutorial: tap anywhere to advance
+    if(s_state == ST_TUTORIAL) {
+      select_click(NULL, NULL);
+      return;
+    }
+    // Stats: tap to go back
+    if(s_state == ST_STATS) {
+      select_click(NULL, NULL);
+      return;
+    }
+  }
+
+  bool in_play = (s_state == ST_TN_PLAY || s_state == ST_TN_CHECK ||
+                  s_state == ST_BN_PLAY || s_state == ST_BN_CHECK ||
+                  s_state == ST_SM_PLAY || s_state == ST_SM_CHECK);
+  if(s_touch_direct && in_play && touch_hit_grid(event->x, event->y)) {
+    // Dismiss errors if in check state
+    if(s_state == ST_TN_CHECK) { memset(tn_error, 0, sizeof(tn_error)); tn_error_msg[0] = '\0'; s_state = ST_TN_PLAY; }
+    if(s_state == ST_BN_CHECK) { memset(bn_error, 0, sizeof(bn_error)); bn_error_msg[0] = '\0'; s_state = ST_BN_PLAY; }
+    if(s_state == ST_SM_CHECK) { memset(sm_error, 0, sizeof(sm_error)); sm_error_msg[0] = '\0'; s_state = ST_SM_PLAY; }
+  }
   do_tap_action();
+  layer_mark_dirty(s_canvas);
 }
 
 // TAP handler — Pebble accel tap or mapped to middle button
@@ -2203,6 +2295,19 @@ static void window_unload(Window *window) {
 }
 
 // ============================================================================
+// APP MESSAGE (settings from config page)
+// ============================================================================
+static void inbox_received(DictionaryIterator *iter, void *context) {
+  (void)context;
+  Tuple *t = dict_find(iter, MESSAGE_KEY_TOUCH_MODE);
+  if(t) {
+    s_touch_direct = (int)t->value->int32 != 0;
+    persist_write_int(P_TOUCH_DIRECT, s_touch_direct ? 1 : 0);
+    if(s_canvas) layer_mark_dirty(s_canvas);
+  }
+}
+
+// ============================================================================
 // INIT / DEINIT
 // ============================================================================
 static void init(void) {
@@ -2212,6 +2317,7 @@ static void init(void) {
   if(persist_exists(P_BEST_STREAK)) s_best_streak = persist_read_int(P_BEST_STREAK);
   if(persist_exists(P_TOTAL_DAYS)) s_total_days = persist_read_int(P_TOTAL_DAYS);
   if(persist_exists(P_TUTORIAL_SEEN)) s_tutorial_seen = persist_read_int(P_TUTORIAL_SEEN);
+  if(persist_exists(P_TOUCH_DIRECT)) s_touch_direct = persist_read_int(P_TOUCH_DIRECT) != 0;
 
   // Reset streak if more than 1 day gap
   int today = day_number();
@@ -2219,6 +2325,10 @@ static void init(void) {
     s_streak = 0;
     persist_write_int(P_STREAK, 0);
   }
+
+  // AppMessage for settings
+  app_message_register_inbox_received(inbox_received);
+  app_message_open(64, 64);
 
   // Load icon fonts
   s_icon_font_20 = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_ICON_FONT_20));
