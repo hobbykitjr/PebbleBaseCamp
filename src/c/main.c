@@ -166,8 +166,12 @@ static int g_rows, g_cols;
 static int g_cursor_r, g_cursor_c;
 static bool g_locked[MAX_GRID][MAX_GRID];
 
-// Cached grid layout for touch hit-testing (updated each draw)
+// Cached layout for touch hit-testing (updated each draw)
 static int g_grid_ox, g_grid_oy, g_grid_cell_sz, g_grid_gap, g_grid_size;
+static GRect g_menu_item[5];
+static int   g_menu_item_n;
+static GRect g_diff_item[3];
+static int   g_diff_item_n;
 
 static void grid_skip_locked(int dr, int dc) {
   for(int i = 0; i < g_rows * g_cols; i++) {
@@ -2121,12 +2125,6 @@ static void back_click(ClickRecognizerRef ref, void *ctx) {
 // ============================================================================
 #define TAP_COOLDOWN_MS  400    // minimum ms between detected taps
 static uint32_t s_last_tap_time = 0;
-
-// Cached menu layout for touch
-static GRect g_menu_item[5];
-static int   g_menu_item_n;
-static GRect g_diff_item[3];
-static int   g_diff_item_n;
 
 static void do_tap_action(void);  // forward decl
 static void select_click(ClickRecognizerRef ref, void *ctx);
