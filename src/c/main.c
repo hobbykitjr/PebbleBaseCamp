@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef MESSAGE_KEY_TOUCH_MODE
+#define MESSAGE_KEY_TOUCH_MODE 0
+#endif
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
